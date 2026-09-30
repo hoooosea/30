@@ -5,13 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Rotational Dynamics - Screenprint Simulator</title>
   <link rel="stylesheet" href="style.css">
+  
   <!-- 載入 p5.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
-  <!-- 載入 Tweakpane 控制器 -->
-  <script src="https://cdn.jsdelivr.net/npm/tweakpane@4.0.3/dist/tweakpane.min.js"></script>
+  
+  <!-- 以 module 方式載入 Tweakpane 並掛載至全域 -->
+  <script type="module">
+    import * as Tweakpane from 'https://cdn.jsdelivr.net/npm/tweakpane@4.0.3/dist/tweakpane.min.js';
+    window.Tweakpane = Tweakpane;
+  </script>
 </head>
 <body>
   <div id="canvas-container"></div>
-  <script src="sketch.js"></script>
+  <script src="sketch.js" defer></script>
 </body>
 </html>
