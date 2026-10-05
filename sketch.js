@@ -1,18 +1,18 @@
 // --- 參數狀態中心（Tweakpane 雙向綁定） ---
 const PARAMS = {
-  // 幾何核心
+  // 幾何
   rings: 36,
   gearRatio: 3.0,
   speed: 0.014,
   baseRadius: 48,
   amplitude: 35,
   
-  // 網版印刷與色彩模擬
+  // 網版印刷質感
   paperTone: '#F3EFE6',    // 手工棉紙底色
-  inkTone: '#121212',      // 油墨顏色（預設 100% K 碳黑）
+  inkTone: '#121212',      // 螢幕預覽線條油墨顏色
   inkBleed: 0.6,           // 油墨微滲透強度 (px)
   paperGrain: 18,          // 紙張纖維噪點強度
-  showMarks: true,         // 對位十字標開關
+  showMarks: true,         // 對位標籤開關
   
   // 系統控制
   freeze: false
@@ -27,123 +27,115 @@ function setup() {
   frameRate(60);
   pixelDensity(1);
 
-  // 1. 初始化 Tweakpane 控制面板
   initTweakpane();
-
-  // 2. 產生初始紙張底紋
   generatePaperTexture();
 }
 
 function draw() {
-  if (PARAMS.freeze) return;
-
-  // 繪製紙張底紋快取
+  // 1. 繪製預渲染紙張底紋
   image(paperTexture, 0, 0);
 
+  // 2. 計算時間相位
   const t = frameCount * PARAMS.speed;
 
-  // 繪製幾何主體
-  renderEpicyclicSystem(this, t, 1.0);
+  // 3. 輕量化渲染幾何輪系（即時預覽關閉昂貴疊印以維持滿幀 60 fps）
+  renderEpicyclicSystem(this, t, 1.0, false);
 
-  // 繪製四角對位十字標
+  // 4. 繪製對位十字標
   if (PARAMS.showMarks) {
-    drawRegistrationMarks(this, 1.0);
+    drawRegistrationMarks(this, 1.0, false);
   }
 }
 
 // -------------------------------------------------------------------------
-// 幾何計算核心：通用渲染器（支援主畫布與高解析度緩衝區）
+// 幾何繪圖核心：支援螢幕渲染與純黑向量 SVG 輸出
 // -------------------------------------------------------------------------
-function renderEpicyclicSystem(pg, t, scaleFactor) {
+function renderEpicyclicSystem(pg, t, scaleFactor, isVectorExport) {
   const cx = pg.width * 0.5;
   const cy = pg.height * 0.5;
   const margin = 45.0 * scaleFactor;
+  const baseR = PARAMS.baseRadius * scaleFactor;
+  const maxR = 235.0 * scaleFactor;
+  const bleed = PARAMS.inkBleed * scaleFactor;
 
   pg.noFill();
 
-  // 解析使用者選取之油墨顏色，解除硬編碼
-  const baseColor = color(PARAMS.inkTone);
+  // 若為膠片向量輸出，嚴格強制使用 100% K 純黑無透明度
+  if (isVectorExport) {
+    pg.stroke(0);
+    pg.strokeWeight(1.0);
+  } else {
+    const c = color(PARAMS.inkTone);
+    pg.stroke(red(c), green(c), blue(c));
+    pg.strokeWeight(1.2 * scaleFactor);
+  }
+
+  // 向量匯出時提高曲線細分點數，確保開版線條平滑
+  const samples = isVectorExport ? 360 : 100;
 
   for (let i = 0; i < PARAMS.rings; i++) {
     const norm = i / (PARAMS.rings - 1);
-    const R = map(norm, 0, 1, PARAMS.baseRadius * scaleFactor, 235 * scaleFactor);
+    const R = map(norm, 0, 1, baseR, maxR);
     const r = map(sin(norm * PI + t * 0.8), -1, 1, 16 * scaleFactor, (16 + PARAMS.amplitude) * scaleFactor);
 
-    // 雙通道半透明疊印模擬油墨毛細邊界
-    const passes = PARAMS.inkBleed > 0 ? 2 : 1;
+    pg.beginShape();
+    for (let j = 0; j <= samples; j++) {
+      const theta = (j / samples) * TWO_PI;
+      const phase = t * 1.5 + norm * PI;
 
-    for (let p = 0; p < passes; p++) {
-      const alphaVal = p === 0 ? 230 : 65;
-      const strokeCol = color(red(baseColor), green(baseColor), blue(baseColor), alphaVal);
-      pg.stroke(strokeCol);
+      let x = cx + R * cos(theta + phase) + r * cos(PARAMS.gearRatio * (theta + phase));
+      let y = cy + R * sin(theta + phase) - r * sin(PARAMS.gearRatio * (theta + phase));
 
-      const baseWeight = (p === 0 ? 1.2 : 1.2 + PARAMS.inkBleed * 1.5) * scaleFactor;
-      pg.strokeWeight(baseWeight);
-
-      pg.beginShape();
-      const samples = 220;
-      for (let j = 0; j <= samples; j++) {
-        const theta = (j / samples) * TWO_PI;
-        const phase = t * 1.5 + norm * PI;
-
-        let x = cx + R * cos(theta + phase) + r * cos(PARAMS.gearRatio * (theta + phase));
-        let y = cy + R * sin(theta + phase) - r * sin(PARAMS.gearRatio * (theta + phase));
-
-        // 疊加微量網目物理擾動
-        if (PARAMS.inkBleed > 0) {
-          const jitter = PARAMS.inkBleed * scaleFactor;
-          x += (noise(x * 0.05, y * 0.05, t) - 0.5) * jitter;
-          y += (noise(y * 0.05, x * 0.05, t) - 0.5) * jitter;
-        }
-
-        // 畫布邊界限制
-        if (x >= margin && x <= pg.width - margin && y >= margin && y <= pg.height - margin) {
-          pg.vertex(x, y);
-        }
+      // 向量開版黑稿不加入隨機微滲透，以確保照排路徑平滑封閉
+      if (bleed > 0 && !isVectorExport) {
+        x += (noise(x * 0.05, y * 0.05, t) - 0.5) * bleed;
+        y += (noise(y * 0.05, x * 0.05, t) - 0.5) * bleed;
       }
-      pg.endShape();
+
+      if (x >= margin && x <= pg.width - margin && y >= margin && y <= pg.height - margin) {
+        pg.vertex(x, y);
+      }
     }
+    pg.endShape();
   }
 }
 
 // -------------------------------------------------------------------------
-// 紙張紋理產生器（支援底色即時變更）
+// 紙張紋理產生器（僅供網頁螢幕模擬）
 // -------------------------------------------------------------------------
-function generatePaperTexture(targetGraphics, scaleFactor = 1) {
-  const g = targetGraphics || createGraphics(width, height);
-  g.pixelDensity(1);
-  g.background(PARAMS.paperTone);
-  g.loadPixels();
+function generatePaperTexture() {
+  if (!paperTexture) {
+    paperTexture = createGraphics(width, height);
+    paperTexture.pixelDensity(1);
+  }
+  
+  paperTexture.background(PARAMS.paperTone);
+  paperTexture.loadPixels();
 
-  const d = g.pixels;
-  const w = g.width;
-  const h = g.height;
+  const d = paperTexture.pixels;
+  const grainVal = PARAMS.paperGrain;
 
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const idx = (x + y * w) * 4;
-      const grain = (noise(x * 0.8, y * 0.8) - 0.5) * PARAMS.paperGrain;
-      d[idx]     = constrain(d[idx] + grain, 0, 255);
-      d[idx + 1] = constrain(d[idx + 1] + grain, 0, 255);
-      d[idx + 2] = constrain(d[idx + 2] + grain, 0, 255);
+  if (grainVal > 0) {
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = (x + y * width) * 4;
+        const grain = (noise(x * 0.8, y * 0.8) - 0.5) * grainVal;
+        d[idx]     = constrain(d[idx] + grain, 0, 255);
+        d[idx + 1] = constrain(d[idx + 1] + grain, 0, 255);
+        d[idx + 2] = constrain(d[idx + 2] + grain, 0, 255);
+      }
     }
   }
-  g.updatePixels();
-
-  if (!targetGraphics) {
-    paperTexture = g;
-  }
-  return g;
+  paperTexture.updatePixels();
 }
 
 // -------------------------------------------------------------------------
 // 四角對位十字標
 // -------------------------------------------------------------------------
-function drawRegistrationMarks(pg, scaleFactor) {
-  pg.stroke(PARAMS.inkTone);
-  pg.strokeWeight(0.6 * scaleFactor);
+function drawRegistrationMarks(pg, scaleFactor, isVectorExport) {
+  pg.stroke(isVectorExport ? 0 : PARAMS.inkTone);
+  pg.strokeWeight((isVectorExport ? 0.8 : 0.6) * scaleFactor);
   pg.noFill();
-
   const offset = 22 * scaleFactor;
   const len = 10 * scaleFactor;
 
@@ -163,28 +155,25 @@ function drawRegistrationMarks(pg, scaleFactor) {
 }
 
 // -------------------------------------------------------------------------
-// 高解析度（3200 x 3200 px）離線匯出管線
+// 膠片用向量 SVG 匯出（100% K 純黑無損向量黑稿）
 // -------------------------------------------------------------------------
-function exportHighResPNG() {
-  const scale = 4; // 800 x 4 = 3200 px (約 300 dpi 印刷規格)
-  const hiResBuffer = createGraphics(width * scale, height * scale);
-  hiResBuffer.pixelDensity(1);
+function exportFilmVectorSVG() {
+  // 建立 SVG 虛擬繪圖物件（需搭配 p5.js-svg 模組）
+  const svgGraphics = createGraphics(800, 800, SVG);
+  svgGraphics.clear(); // 背景透明，不包含紙張底色
 
-  // 1. 於緩衝區渲染高解析紙張底紋
-  generatePaperTexture(hiResBuffer, scale);
+  const currentT = frameCount * PARAMS.speed;
 
-  // 2. 於緩衝區繪製高解析向量幾何
-  const t = frameCount * PARAMS.speed;
-  renderEpicyclicSystem(hiResBuffer, t, scale);
+  // 以向量模式渲染純黑路徑
+  renderEpicyclicSystem(svgGraphics, currentT, 1.0, true);
 
-  // 3. 於緩衝區繪製對位標
   if (PARAMS.showMarks) {
-    drawRegistrationMarks(hiResBuffer, scale);
+    drawRegistrationMarks(svgGraphics, 1.0, true);
   }
 
-  // 4. 存檔並釋放記憶體
-  save(hiResBuffer, 'screenprint_3200px.png');
-  hiResBuffer.remove();
+  // 儲存無損向量檔，並釋放記憶體
+  svgGraphics.save('film_black_vector.svg');
+  svgGraphics.remove();
 }
 
 // -------------------------------------------------------------------------
@@ -193,31 +182,43 @@ function exportHighResPNG() {
 function initTweakpane() {
   pane = new Tweakpane.Pane({ title: '參數控制台' });
 
-  // 幾何參數目錄
-  const fGeo = pane.addFolder({ title: '幾何動力學' });
+  // 1. 幾何
+  const fGeo = pane.addFolder({ title: '幾何' });
   fGeo.addBinding(PARAMS, 'rings', { min: 6, max: 64, step: 1, label: '軌道環數' });
   fGeo.addBinding(PARAMS, 'gearRatio', { min: 1.0, max: 8.0, step: 1.0, label: '齒輪比' });
   fGeo.addBinding(PARAMS, 'speed', { min: 0.0, max: 0.05, step: 0.001, label: '轉速' });
   fGeo.addBinding(PARAMS, 'amplitude', { min: 0, max: 100, step: 1, label: '震幅' });
 
-  // 印刷模擬目錄
+  // 2. 網版印刷質感
   const fPrint = pane.addFolder({ title: '網版印刷質感' });
-  // 修正：紙張底色加入 change 事件監聽，即時重建紋理快取
   fPrint.addBinding(PARAMS, 'paperTone', { label: '紙張底色' }).on('change', () => {
     generatePaperTexture();
+    if (PARAMS.freeze) redraw();
   });
-  // 新增：線條油墨顏色控制項
-  fPrint.addBinding(PARAMS, 'inkTone', { label: '油墨顏色' });
+  fPrint.addBinding(PARAMS, 'inkTone', { label: '油墨顏色' }).on('change', () => {
+    if (PARAMS.freeze) redraw();
+  });
   fPrint.addBinding(PARAMS, 'inkBleed', { min: 0.0, max: 2.5, step: 0.1, label: '油墨擴散' });
   fPrint.addBinding(PARAMS, 'paperGrain', { min: 0, max: 50, step: 1, label: '紙張顆粒' }).on('change', () => {
     generatePaperTexture();
+    if (PARAMS.freeze) redraw();
   });
-  fPrint.addBinding(PARAMS, 'showMarks', { label: '對位標籤' });
+  fPrint.addBinding(PARAMS, 'showMarks', { label: '對位標籤' }).on('change', () => {
+    if (PARAMS.freeze) redraw();
+  });
 
-  // 系統控制
-  pane.addBinding(PARAMS, 'freeze', { label: '凍結動態' });
-  // 修正：更換為超採樣高畫質匯出
-  pane.addButton({ title: '匯出高解析印刷圖 (3200px)' }).on('click', () => {
-    exportHighResPNG();
+  // 3. 系統控制
+  const fSys = pane.addFolder({ title: '系統控制' });
+  fSys.addBinding(PARAMS, 'freeze', { label: '凍結動態' }).on('change', (ev) => {
+    if (ev.value) {
+      noLoop();
+    } else {
+      loop();
+    }
+  });
+
+  // 4. 開版專用向量匯出按鈕
+  fSys.addButton({ title: '膠片用向量圖檔' }).on('click', () => {
+    exportFilmVectorSVG();
   });
 }
