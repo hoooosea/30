@@ -1,19 +1,23 @@
 // --- 參數狀態中心 ---
 const PARAMS = {
-  // 幾何
+  // 模型選擇
+  model: 'epicyclic',      // 當前模型：'epicyclic' | 'hexTwist' | 'quadrifolio'
+
+  // 通用幾何參數
   rings: 36,
-  gearRatio: 3.0,
   speed: 0.014,
-  baseRadius: 48,
   amplitude: 35,
-  
-  // 網版印刷質感
+  gearRatio: 3.0,          // 適用於 軌道波浪
+  twistAngle: 1.2,         // 適用於 六邊螺旋
+  lensOverlap: 0.65,       // 適用於 透鏡擴散
+
+  // 網版印刷質感（螢幕預覽）
   paperTone: '#F3EFE6',    // 手工棉紙底色
   inkTone: '#121212',      // 螢幕預覽線條油墨顏色
   inkBleed: 0.6,           // 油墨微滲透強度 (px)
   paperGrain: 18,          // 紙張纖維噪點強度
   showMarks: true,         // 對位標籤開關
-  
+
   // 系統控制
   freeze: false
 };
@@ -32,37 +36,46 @@ function setup() {
 }
 
 function draw() {
-  // 1. 繪製預渲染紙張底紋
+  // 1. 繪製底層棉紙質地
   image(paperTexture, 0, 0);
 
-  // 2. 計算時間相位
+  // 2. 時間相位
   const t = frameCount * PARAMS.speed;
 
-  // 3. 輕量化渲染幾何輪系（即時流暢 60 fps）
-  renderEpicyclicSystem(this, t, 1.0);
+  // 3. 依據當前選定模型進行動態渲染（維持 60 fps）
+  renderActiveModel(this, t, 1.0, false);
 
   // 4. 繪製對位十字標
   if (PARAMS.showMarks) {
-    drawRegistrationMarks(this, 1.0);
+    drawRegistrationMarks(this, 1.0, false);
   }
 }
 
 // -------------------------------------------------------------------------
-// 螢幕繪圖核心
+// 幾何調度工廠（Factory Dispatcher）
 // -------------------------------------------------------------------------
-function renderEpicyclicSystem(pg, t, scaleFactor) {
+function renderActiveModel(pg, t, scaleFactor, isVectorExport) {
+  if (PARAMS.model === 'epicyclic') {
+    renderEpicyclicSystem(pg, t, scaleFactor, isVectorExport);
+  } else if (PARAMS.model === 'hexTwist') {
+    renderHexTwist(pg, t, scaleFactor, isVectorExport);
+  } else if (PARAMS.model === 'quadrifolio') {
+    renderQuadrifolio(pg, t, scaleFactor, isVectorExport);
+  }
+}
+
+// -------------------------------------------------------------------------
+// 模型 1：軌道波浪
+// -------------------------------------------------------------------------
+function renderEpicyclicSystem(pg, t, scaleFactor, isVectorExport) {
   const cx = pg.width * 0.5;
   const cy = pg.height * 0.5;
   const margin = 45.0 * scaleFactor;
-  const baseR = PARAMS.baseRadius * scaleFactor;
+  const baseR = 48 * scaleFactor;
   const maxR = 235.0 * scaleFactor;
+  const samples = isVectorExport ? 360 : 100;
 
-  pg.noFill();
-  const c = color(PARAMS.inkTone);
-  pg.stroke(red(c), green(c), blue(c));
-  pg.strokeWeight(1.2 * scaleFactor);
-
-  const samples = 110;
+  configureStroke(pg, scaleFactor, isVectorExport);
 
   for (let i = 0; i < PARAMS.rings; i++) {
     const norm = i / (PARAMS.rings - 1);
@@ -73,7 +86,6 @@ function renderEpicyclicSystem(pg, t, scaleFactor) {
     for (let j = 0; j <= samples; j++) {
       const theta = (j / samples) * TWO_PI;
       const phase = t * 1.5 + norm * PI;
-
       let x = cx + R * cos(theta + phase) + r * cos(PARAMS.gearRatio * (theta + phase));
       let y = cy + R * sin(theta + phase) - r * sin(PARAMS.gearRatio * (theta + phase));
 
@@ -86,6 +98,85 @@ function renderEpicyclicSystem(pg, t, scaleFactor) {
 }
 
 // -------------------------------------------------------------------------
+// 模型 2：六邊螺旋
+// -------------------------------------------------------------------------
+function renderHexTwist(pg, t, scaleFactor, isVectorExport) {
+  const cx = pg.width * 0.5;
+  const cy = pg.height * 0.5;
+  const margin = 45.0 * scaleFactor;
+  const maxR = 260.0 * scaleFactor;
+  const samples = isVectorExport ? 360 : 120;
+
+  configureStroke(pg, scaleFactor, isVectorExport);
+
+  for (let i = 0; i < PARAMS.rings; i++) {
+    const norm = i / (PARAMS.rings - 1);
+    const currentR = map(norm, 0, 1, 30 * scaleFactor, maxR);
+    const twist = norm * PARAMS.twistAngle * PI + t;
+
+    pg.beginShape();
+    for (let j = 0; j <= samples; j++) {
+      const angle = (j / samples) * TWO_PI;
+      const mod = 1.0 + (PARAMS.amplitude * 0.003) * cos(6.0 * (angle + twist));
+      const rad = currentR * mod;
+
+      let x = cx + rad * cos(angle);
+      let y = cy + rad * sin(angle);
+
+      if (x >= margin && x <= pg.width - margin && y >= margin && y <= pg.height - margin) {
+        pg.vertex(x, y);
+      }
+    }
+    pg.endShape(CLOSE);
+  }
+}
+
+// -------------------------------------------------------------------------
+// 模型 3：透鏡擴散
+// -------------------------------------------------------------------------
+function renderQuadrifolio(pg, t, scaleFactor, isVectorExport) {
+  const cx = pg.width * 0.5;
+  const cy = pg.height * 0.5;
+  const margin = 45.0 * scaleFactor;
+  const maxR = 240.0 * scaleFactor;
+  const samples = isVectorExport ? 360 : 120;
+
+  configureStroke(pg, scaleFactor, isVectorExport);
+
+  for (let i = 0; i < PARAMS.rings; i++) {
+    const norm = i / (PARAMS.rings - 1);
+    const baseSize = map(norm, 0, 1, 40 * scaleFactor, maxR);
+    const petalWarp = (PARAMS.amplitude * 0.005) * sin(t * 1.2 + norm * TWO_PI);
+
+    pg.beginShape();
+    for (let j = 0; j <= samples; j++) {
+      const angle = (j / samples) * TWO_PI;
+      const r = baseSize * (1.0 + (PARAMS.lensOverlap + petalWarp) * cos(4.0 * angle + t));
+      let x = cx + r * cos(angle + norm * 0.3);
+      let y = cy + r * sin(angle + norm * 0.3);
+
+      if (x >= margin && x <= pg.width - margin && y >= margin && y <= pg.height - margin) {
+        pg.vertex(x, y);
+      }
+    }
+    pg.endShape(CLOSE);
+  }
+}
+
+// 筆觸與線寬樣式統一設定
+function configureStroke(pg, scaleFactor, isVectorExport) {
+  pg.noFill();
+  if (isVectorExport) {
+    pg.stroke(0);
+    pg.strokeWeight(1.0);
+  } else {
+    const c = color(PARAMS.inkTone);
+    pg.stroke(red(c), green(c), blue(c));
+    pg.strokeWeight(1.2 * scaleFactor);
+  }
+}
+
+// -------------------------------------------------------------------------
 // 紙張紋理產生器
 // -------------------------------------------------------------------------
 function generatePaperTexture() {
@@ -93,7 +184,7 @@ function generatePaperTexture() {
     paperTexture = createGraphics(width, height);
     paperTexture.pixelDensity(1);
   }
-  
+
   paperTexture.background(PARAMS.paperTone);
   paperTexture.loadPixels();
 
@@ -115,11 +206,11 @@ function generatePaperTexture() {
 }
 
 // -------------------------------------------------------------------------
-// 螢幕用對位十字標
+// 對位十字標
 // -------------------------------------------------------------------------
-function drawRegistrationMarks(pg, scaleFactor) {
-  pg.stroke(PARAMS.inkTone);
-  pg.strokeWeight(0.6 * scaleFactor);
+function drawRegistrationMarks(pg, scaleFactor, isVectorExport) {
+  pg.stroke(isVectorExport ? 0 : PARAMS.inkTone);
+  pg.strokeWeight((isVectorExport ? 0.8 : 0.6) * scaleFactor);
   pg.noFill();
   const offset = 22 * scaleFactor;
   const len = 10 * scaleFactor;
@@ -140,7 +231,7 @@ function drawRegistrationMarks(pg, scaleFactor) {
 }
 
 // -------------------------------------------------------------------------
-// 原生純黑向量 SVG 產生器（100% K 開版菲林專用）
+// 原生純黑向量 SVG 產生器
 // -------------------------------------------------------------------------
 function exportNativeFilmSVG() {
   const w = 800;
@@ -148,125 +239,33 @@ function exportNativeFilmSVG() {
   const cx = w * 0.5;
   const cy = h * 0.5;
   const margin = 45.0;
-  const baseR = PARAMS.baseRadius;
-  const maxR = 235.0;
   const t = frameCount * PARAMS.speed;
-  const samples = 360; // 開版專用高密度平滑取樣
+  const samples = 360;
 
   let svgContent = `<?xml version="1.0" encoding="utf-8"?>\n`;
   svgContent += `<svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n`;
-  svgContent += `<g id="film_black_plate" fill="none" stroke="#000000" stroke-width="1.0" stroke-linecap="round" stroke-linejoin="round">\n`;
+  svgContent += `<g id="film_black_${PARAMS.model}" fill="none" stroke="#000000" stroke-width="1.0" stroke-linecap="round" stroke-linejoin="round">\n`;
 
-  // 1. 幾何線條路徑
   for (let i = 0; i < PARAMS.rings; i++) {
     const norm = i / (PARAMS.rings - 1);
-    const R = map(norm, 0, 1, baseR, maxR);
-    const r = map(sin(norm * PI + t * 0.8), -1, 1, 16, 16 + PARAMS.amplitude);
-
     let pathD = '';
     let isDrawing = false;
 
     for (let j = 0; j <= samples; j++) {
-      const theta = (j / samples) * TWO_PI;
-      const phase = t * 1.5 + norm * PI;
+      let x, y;
 
-      let x = cx + R * cos(theta + phase) + r * cos(PARAMS.gearRatio * (theta + phase));
-      let y = cy + R * sin(theta + phase) - r * sin(PARAMS.gearRatio * (theta + phase));
-
-      if (x >= margin && x <= w - margin && y >= margin && y <= h - margin) {
-        if (!isDrawing) {
-          pathD += `M ${x.toFixed(2)} ${y.toFixed(2)} `;
-          isDrawing = true;
-        } else {
-          pathD += `L ${x.toFixed(2)} ${y.toFixed(2)} `;
-        }
-      } else {
-        isDrawing = false;
-      }
-    }
-
-    if (pathD.length > 0) {
-      svgContent += `  <path d="${pathD}" />\n`;
-    }
-  }
-
-  // 2. 對位十字標
-  if (PARAMS.showMarks) {
-    const offset = 22;
-    const len = 10;
-    const corners = [
-      [offset, offset],
-      [w - offset, offset],
-      [offset, h - offset],
-      [w - offset, h - offset]
-    ];
-
-    svgContent += `  <!-- 對位標 -->\n`;
-    for (let i = 0; i < corners.length; i++) {
-      const [mx, my] = corners[i];
-      svgContent += `  <line x1="${mx - len}" y1="${my}" x2="${mx + len}" y2="${my}" stroke-width="0.8" />\n`;
-      svgContent += `  <line x1="${mx}" y1="${my - len}" x2="${mx}" y2="${my + len}" stroke-width="0.8" />\n`;
-      svgContent += `  <circle cx="${mx}" cy="${my}" r="${len * 0.5}" stroke-width="0.8" />\n`;
-    }
-  }
-
-  svgContent += `</g>\n</svg>`;
-
-  // 觸發瀏覽器下載
-  const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `film_black_${Date.now()}.svg`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-// -------------------------------------------------------------------------
-// Tweakpane 控制面板設定
-// -------------------------------------------------------------------------
-function initTweakpane() {
-  pane = new Tweakpane.Pane({ title: '參數控制台' });
-
-  // 1. 幾何（已修正標題）
-  const fGeo = pane.addFolder({ title: '幾何' });
-  fGeo.addBinding(PARAMS, 'rings', { min: 6, max: 64, step: 1, label: '軌道環數' });
-  fGeo.addBinding(PARAMS, 'gearRatio', { min: 1.0, max: 8.0, step: 1.0, label: '齒輪比' });
-  fGeo.addBinding(PARAMS, 'speed', { min: 0.0, max: 0.05, step: 0.001, label: '轉速' });
-  fGeo.addBinding(PARAMS, 'amplitude', { min: 0, max: 100, step: 1, label: '震幅' });
-
-  // 2. 網版印刷質感
-  const fPrint = pane.addFolder({ title: '網版印刷質感' });
-  fPrint.addBinding(PARAMS, 'paperTone', { label: '紙張底色' }).on('change', () => {
-    generatePaperTexture();
-    if (PARAMS.freeze) redraw();
-  });
-  fPrint.addBinding(PARAMS, 'inkTone', { label: '油墨顏色' }).on('change', () => {
-    if (PARAMS.freeze) redraw();
-  });
-  fPrint.addBinding(PARAMS, 'inkBleed', { min: 0.0, max: 2.5, step: 0.1, label: '油墨擴散' });
-  fPrint.addBinding(PARAMS, 'paperGrain', { min: 0, max: 50, step: 1, label: '紙張顆粒' }).on('change', () => {
-    generatePaperTexture();
-    if (PARAMS.freeze) redraw();
-  });
-  fPrint.addBinding(PARAMS, 'showMarks', { label: '對位標籤' }).on('change', () => {
-    if (PARAMS.freeze) redraw();
-  });
-
-  // 3. 系統控制
-  const fSys = pane.addFolder({ title: '系統控制' });
-  fSys.addBinding(PARAMS, 'freeze', { label: '凍結動態' }).on('change', (ev) => {
-    if (ev.value) {
-      noLoop();
-    } else {
-      loop();
-    }
-  });
-
-  // 4. 按鈕（已修正標題為「膠片用向量圖檔」）
-  fSys.addButton({ title: '膠片用向量圖檔' }).on('click', () => {
-    exportNativeFilmSVG();
-  });
-}
+      if (PARAMS.model === 'epicyclic') {
+        const R = map(norm, 0, 1, 48, 235);
+        const r = map(sin(norm * PI + t * 0.8), -1, 1, 16, 16 + PARAMS.amplitude);
+        const theta = (j / samples) * TWO_PI;
+        const phase = t * 1.5 + norm * PI;
+        x = cx + R * cos(theta + phase) + r * cos(PARAMS.gearRatio * (theta + phase));
+        y = cy + R * sin(theta + phase) - r * sin(PARAMS.gearRatio * (theta + phase));
+      } else if (PARAMS.model === 'hexTwist') {
+        const currentR = map(norm, 0, 1, 30, 260);
+        const twist = norm * PARAMS.twistAngle * PI + t;
+        const angle = (j / samples) * TWO_PI;
+        const mod = 1.0 + (PARAMS.amplitude * 0.003) * cos(6.0 * (angle + twist));
+        x = cx + (currentR * mod) * cos(angle);
+        y = cy + (currentR * mod) * sin(angle);
+      } else if (PARAMS.model === 'quadrifolio') {
