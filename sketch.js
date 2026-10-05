@@ -235,10 +235,9 @@ function drawRegistrationMarks(pg, scaleFactor, isVectorExport) {
 }
 
 // -------------------------------------------------------------------------
-// 匯出功能：彩色 JPG 與膠片 SVG
+// 匯出功能：彩色 JPG 與原生純黑 SVG
 // -------------------------------------------------------------------------
 function exportColorJPG() {
-  // 將當前畫布上的畫面（含底色、纖維紋理與自訂線條顏色）直接儲存為 JPG
   saveCanvas(`preview_${PARAMS.model}_${Date.now()}`, 'jpg');
 }
 
@@ -372,4 +371,31 @@ function initTweakpane() {
   fPrint.addBinding(PARAMS, 'inkTone', { label: '油墨顏色' }).on('change', () => {
     if (PARAMS.freeze) redraw();
   });
-  fPrint.addBinding(PARAMS, 'inkBleed', { min: 0.0, max: 2.5, step: 0.1, label: '油墨擴散'
+  fPrint.addBinding(PARAMS, 'inkBleed', { min: 0.0, max: 2.5, step: 0.1, label: '油墨擴散' });
+  fPrint.addBinding(PARAMS, 'paperGrain', { min: 0, max: 50, step: 1, label: '紙張顆粒' }).on('change', () => {
+    generatePaperTexture();
+    if (PARAMS.freeze) redraw();
+  });
+  fPrint.addBinding(PARAMS, 'showMarks', { label: '對位標籤' }).on('change', () => {
+    if (PARAMS.freeze) redraw();
+  });
+
+  // 3. 系統控制
+  const fSys = pane.addFolder({ title: '系統控制' });
+  fSys.addBinding(PARAMS, 'freeze', { label: '凍結動態' }).on('change', (ev) => {
+    if (ev.value) {
+      noLoop();
+    } else {
+      loop();
+    }
+  });
+
+  // 4. 匯出功能雙按鈕
+  fSys.addButton({ title: '匯出彩色圖像 (JPG)' }).on('click', () => {
+    exportColorJPG();
+  });
+
+  fSys.addButton({ title: '膠片用向量圖檔 (SVG)' }).on('click', () => {
+    exportNativeFilmSVG();
+  });
+}
