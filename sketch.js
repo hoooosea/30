@@ -1,7 +1,7 @@
 // --- 參數狀態中心 ---
 const PARAMS = {
-  // 模型選擇
-  model: 'epicyclic',      // 當前模型：'epicyclic' | 'hexTwist' | 'quadrifolio'
+  // 幾何模型選擇（方案 B）
+  model: 'epicyclic',
 
   // 通用幾何參數
   rings: 36,
@@ -11,12 +11,12 @@ const PARAMS = {
   twistAngle: 1.2,         // 適用於 六邊螺旋
   lensOverlap: 0.65,       // 適用於 透鏡擴散
 
-  // 網版印刷質感（螢幕預覽）
+  // 網版印刷質感
   paperTone: '#F3EFE6',    // 手工棉紙底色
-  inkTone: '#121212',      // 螢幕預覽線條油墨顏色
-  inkBleed: 0.6,           // 油墨微滲透強度 (px)
-  paperGrain: 18,          // 紙張纖維噪點強度
-  showMarks: true,         // 對位標籤開關
+  inkTone: '#121212',      // 線條油墨顏色
+  inkBleed: 0.6,           // 油墨微滲透強度
+  paperGrain: 18,          // 紙張纖維噪點
+  showMarks: true,         // 對位標籤
 
   // 系統控制
   freeze: false
@@ -36,13 +36,17 @@ function setup() {
 }
 
 function draw() {
-  // 1. 繪製底層棉紙質地
-  image(paperTexture, 0, 0);
+  // 1. 底層手工棉紙質地
+  if (paperTexture) {
+    image(paperTexture, 0, 0);
+  } else {
+    background(PARAMS.paperTone);
+  }
 
   // 2. 時間相位
   const t = frameCount * PARAMS.speed;
 
-  // 3. 依據當前選定模型進行動態渲染（維持 60 fps）
+  // 3. 執行當前選定的幾何模型渲染
   renderActiveModel(this, t, 1.0, false);
 
   // 4. 繪製對位十字標
@@ -52,15 +56,15 @@ function draw() {
 }
 
 // -------------------------------------------------------------------------
-// 幾何調度工廠（Factory Dispatcher）
+// 幾何調度工廠
 // -------------------------------------------------------------------------
 function renderActiveModel(pg, t, scaleFactor, isVectorExport) {
-  if (PARAMS.model === 'epicyclic') {
-    renderEpicyclicSystem(pg, t, scaleFactor, isVectorExport);
-  } else if (PARAMS.model === 'hexTwist') {
+  if (PARAMS.model === 'hexTwist') {
     renderHexTwist(pg, t, scaleFactor, isVectorExport);
   } else if (PARAMS.model === 'quadrifolio') {
     renderQuadrifolio(pg, t, scaleFactor, isVectorExport);
+  } else {
+    renderEpicyclicSystem(pg, t, scaleFactor, isVectorExport);
   }
 }
 
@@ -71,14 +75,14 @@ function renderEpicyclicSystem(pg, t, scaleFactor, isVectorExport) {
   const cx = pg.width * 0.5;
   const cy = pg.height * 0.5;
   const margin = 45.0 * scaleFactor;
-  const baseR = 48 * scaleFactor;
+  const baseR = 48.0 * scaleFactor;
   const maxR = 235.0 * scaleFactor;
   const samples = isVectorExport ? 360 : 100;
 
-  configureStroke(pg, scaleFactor, isVectorExport);
+  applyStrokeStyle(pg, scaleFactor, isVectorExport);
 
   for (let i = 0; i < PARAMS.rings; i++) {
-    const norm = i / (PARAMS.rings - 1);
+    const norm = i / Math.max(1, PARAMS.rings - 1);
     const R = map(norm, 0, 1, baseR, maxR);
     const r = map(sin(norm * PI + t * 0.8), -1, 1, 16 * scaleFactor, (16 + PARAMS.amplitude) * scaleFactor);
 
@@ -104,20 +108,20 @@ function renderHexTwist(pg, t, scaleFactor, isVectorExport) {
   const cx = pg.width * 0.5;
   const cy = pg.height * 0.5;
   const margin = 45.0 * scaleFactor;
-  const maxR = 260.0 * scaleFactor;
+  const maxR = 250.0 * scaleFactor;
   const samples = isVectorExport ? 360 : 120;
 
-  configureStroke(pg, scaleFactor, isVectorExport);
+  applyStrokeStyle(pg, scaleFactor, isVectorExport);
 
   for (let i = 0; i < PARAMS.rings; i++) {
-    const norm = i / (PARAMS.rings - 1);
-    const currentR = map(norm, 0, 1, 30 * scaleFactor, maxR);
+    const norm = i / Math.max(1, PARAMS.rings - 1);
+    const currentR = map(norm, 0, 1, 24 * scaleFactor, maxR);
     const twist = norm * PARAMS.twistAngle * PI + t;
 
     pg.beginShape();
     for (let j = 0; j <= samples; j++) {
       const angle = (j / samples) * TWO_PI;
-      const mod = 1.0 + (PARAMS.amplitude * 0.003) * cos(6.0 * (angle + twist));
+      const mod = 1.0 + (PARAMS.amplitude * 0.0025) * cos(6.0 * (angle + twist));
       const rad = currentR * mod;
 
       let x = cx + rad * cos(angle);
@@ -127,7 +131,7 @@ function renderHexTwist(pg, t, scaleFactor, isVectorExport) {
         pg.vertex(x, y);
       }
     }
-    pg.endShape(CLOSE);
+    pg.endShape();
   }
 }
 
@@ -138,33 +142,33 @@ function renderQuadrifolio(pg, t, scaleFactor, isVectorExport) {
   const cx = pg.width * 0.5;
   const cy = pg.height * 0.5;
   const margin = 45.0 * scaleFactor;
-  const maxR = 240.0 * scaleFactor;
+  const maxR = 230.0 * scaleFactor;
   const samples = isVectorExport ? 360 : 120;
 
-  configureStroke(pg, scaleFactor, isVectorExport);
+  applyStrokeStyle(pg, scaleFactor, isVectorExport);
 
   for (let i = 0; i < PARAMS.rings; i++) {
-    const norm = i / (PARAMS.rings - 1);
-    const baseSize = map(norm, 0, 1, 40 * scaleFactor, maxR);
-    const petalWarp = (PARAMS.amplitude * 0.005) * sin(t * 1.2 + norm * TWO_PI);
+    const norm = i / Math.max(1, PARAMS.rings - 1);
+    const baseSize = map(norm, 0, 1, 35 * scaleFactor, maxR);
+    const petalWarp = (PARAMS.amplitude * 0.004) * sin(t * 1.2 + norm * TWO_PI);
 
     pg.beginShape();
     for (let j = 0; j <= samples; j++) {
       const angle = (j / samples) * TWO_PI;
-      const r = baseSize * (1.0 + (PARAMS.lensOverlap + petalWarp) * cos(4.0 * angle + t));
-      let x = cx + r * cos(angle + norm * 0.3);
-      let y = cy + r * sin(angle + norm * 0.3);
+      const r = baseSize * (1.0 + (PARAMS.lensOverlap * 0.3 + petalWarp) * cos(4.0 * angle + t));
+      let x = cx + r * cos(angle + norm * 0.35);
+      let y = cy + r * sin(angle + norm * 0.35);
 
       if (x >= margin && x <= pg.width - margin && y >= margin && y <= pg.height - margin) {
         pg.vertex(x, y);
       }
     }
-    pg.endShape(CLOSE);
+    pg.endShape();
   }
 }
 
-// 筆觸與線寬樣式統一設定
-function configureStroke(pg, scaleFactor, isVectorExport) {
+// 筆觸樣式設定
+function applyStrokeStyle(pg, scaleFactor, isVectorExport) {
   pg.noFill();
   if (isVectorExport) {
     pg.stroke(0);
@@ -247,25 +251,143 @@ function exportNativeFilmSVG() {
   svgContent += `<g id="film_black_${PARAMS.model}" fill="none" stroke="#000000" stroke-width="1.0" stroke-linecap="round" stroke-linejoin="round">\n`;
 
   for (let i = 0; i < PARAMS.rings; i++) {
-    const norm = i / (PARAMS.rings - 1);
+    const norm = i / Math.max(1, PARAMS.rings - 1);
     let pathD = '';
     let isDrawing = false;
 
     for (let j = 0; j <= samples; j++) {
-      let x, y;
+      let x = 0;
+      let y = 0;
 
-      if (PARAMS.model === 'epicyclic') {
+      if (PARAMS.model === 'hexTwist') {
+        const currentR = map(norm, 0, 1, 24, 250);
+        const twist = norm * PARAMS.twistAngle * PI + t;
+        const angle = (j / samples) * TWO_PI;
+        const mod = 1.0 + (PARAMS.amplitude * 0.0025) * cos(6.0 * (angle + twist));
+        x = cx + (currentR * mod) * cos(angle);
+        y = cy + (currentR * mod) * sin(angle);
+      } else if (PARAMS.model === 'quadrifolio') {
+        const baseSize = map(norm, 0, 1, 35, 230);
+        const petalWarp = (PARAMS.amplitude * 0.004) * sin(t * 1.2 + norm * TWO_PI);
+        const angle = (j / samples) * TWO_PI;
+        const r = baseSize * (1.0 + (PARAMS.lensOverlap * 0.3 + petalWarp) * cos(4.0 * angle + t));
+        x = cx + r * cos(angle + norm * 0.35);
+        y = cy + r * sin(angle + norm * 0.35);
+      } else {
         const R = map(norm, 0, 1, 48, 235);
         const r = map(sin(norm * PI + t * 0.8), -1, 1, 16, 16 + PARAMS.amplitude);
         const theta = (j / samples) * TWO_PI;
         const phase = t * 1.5 + norm * PI;
         x = cx + R * cos(theta + phase) + r * cos(PARAMS.gearRatio * (theta + phase));
         y = cy + R * sin(theta + phase) - r * sin(PARAMS.gearRatio * (theta + phase));
-      } else if (PARAMS.model === 'hexTwist') {
-        const currentR = map(norm, 0, 1, 30, 260);
-        const twist = norm * PARAMS.twistAngle * PI + t;
-        const angle = (j / samples) * TWO_PI;
-        const mod = 1.0 + (PARAMS.amplitude * 0.003) * cos(6.0 * (angle + twist));
-        x = cx + (currentR * mod) * cos(angle);
-        y = cy + (currentR * mod) * sin(angle);
-      } else if (PARAMS.model === 'quadrifolio') {
+      }
+
+      if (x >= margin && x <= w - margin && y >= margin && y <= h - margin) {
+        if (!isDrawing) {
+          pathD += `M ${x.toFixed(2)} ${y.toFixed(2)} `;
+          isDrawing = true;
+        } else {
+          pathD += `L ${x.toFixed(2)} ${y.toFixed(2)} `;
+        }
+      } else {
+        isDrawing = false;
+      }
+    }
+
+    if (pathD.length > 0) {
+      svgContent += `  <path d="${pathD}" />\n`;
+    }
+  }
+
+  if (PARAMS.showMarks) {
+    const offset = 22;
+    const len = 10;
+    const corners = [
+      [offset, offset],
+      [w - offset, offset],
+      [offset, h - offset],
+      [w - offset, h - offset]
+    ];
+    svgContent += `  <!-- 對位十字標 -->\n`;
+    for (let i = 0; i < corners.length; i++) {
+      const [mx, my] = corners[i];
+      svgContent += `  <line x1="${mx - len}" y1="${my}" x2="${mx + len}" y2="${my}" stroke-width="0.8" />\n`;
+      svgContent += `  <line x1="${mx}" y1="${my - len}" x2="${mx}" y2="${my + len}" stroke-width="0.8" />\n`;
+      svgContent += `  <circle cx="${mx}" cy="${my}" r="${len * 0.5}" stroke-width="0.8" />\n`;
+    }
+  }
+
+  svgContent += `</g>\n</svg>`;
+
+  const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `film_${PARAMS.model}_${Date.now()}.svg`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// -------------------------------------------------------------------------
+// Tweakpane 控制面板設定
+// -------------------------------------------------------------------------
+function initTweakpane() {
+  pane = new Tweakpane.Pane({ title: '參數控制台' });
+
+  // 1. 幾何核心
+  const fGeo = pane.addFolder({ title: '幾何' });
+
+  fGeo.addBinding(PARAMS, 'model', {
+    label: '幾何模型',
+    options: {
+      '軌道波浪': 'epicyclic',
+      '六邊螺旋': 'hexTwist',
+      '透鏡擴散': 'quadrifolio'
+    }
+  }).on('change', () => {
+    if (PARAMS.freeze) redraw();
+  });
+
+  fGeo.addBinding(PARAMS, 'rings', { min: 6, max: 64, step: 1, label: '軌道環數' });
+  fGeo.addBinding(PARAMS, 'speed', { min: 0.0, max: 0.05, step: 0.001, label: '轉速' });
+  fGeo.addBinding(PARAMS, 'amplitude', { min: 0, max: 100, step: 1, label: '形變震幅' });
+
+  fGeo.addBinding(PARAMS, 'gearRatio', { min: 1.0, max: 8.0, step: 1.0, label: '波形頻率 (軌道)' });
+  fGeo.addBinding(PARAMS, 'twistAngle', { min: 0.1, max: 3.0, step: 0.1, label: '螺旋扭轉 (六邊)' });
+  fGeo.addBinding(PARAMS, 'lensOverlap', { min: 0.1, max: 1.5, step: 0.05, label: '透鏡擴散度 (透鏡)' });
+
+  // 2. 網版印刷質感
+  const fPrint = pane.addFolder({ title: '網版印刷質感' });
+  fPrint.addBinding(PARAMS, 'paperTone', { label: '紙張底色' }).on('change', () => {
+    generatePaperTexture();
+    if (PARAMS.freeze) redraw();
+  });
+  fPrint.addBinding(PARAMS, 'inkTone', { label: '油墨顏色' }).on('change', () => {
+    if (PARAMS.freeze) redraw();
+  });
+  fPrint.addBinding(PARAMS, 'inkBleed', { min: 0.0, max: 2.5, step: 0.1, label: '油墨擴散' });
+  fPrint.addBinding(PARAMS, 'paperGrain', { min: 0, max: 50, step: 1, label: '紙張顆粒' }).on('change', () => {
+    generatePaperTexture();
+    if (PARAMS.freeze) redraw();
+  });
+  fPrint.addBinding(PARAMS, 'showMarks', { label: '對位標籤' }).on('change', () => {
+    if (PARAMS.freeze) redraw();
+  });
+
+  // 3. 系統控制
+  const fSys = pane.addFolder({ title: '系統控制' });
+  fSys.addBinding(PARAMS, 'freeze', { label: '凍結動態' }).on('change', (ev) => {
+    if (ev.value) {
+      noLoop();
+    } else {
+      loop();
+    }
+  });
+
+  // 4. 膠片向量匯出
+  fSys.addButton({ title: '膠片用向量圖檔' }).on('click', () => {
+    exportNativeFilmSVG();
+  });
+}
