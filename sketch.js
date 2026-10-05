@@ -1,4 +1,4 @@
-// --- 參數狀態中心（Tweakpane 雙向綁定） ---
+// --- 參數狀態中心 ---
 const PARAMS = {
   // 幾何
   rings: 36,
@@ -38,40 +38,31 @@ function draw() {
   // 2. 計算時間相位
   const t = frameCount * PARAMS.speed;
 
-  // 3. 輕量化渲染幾何輪系（即時預覽關閉昂貴疊印以維持滿幀 60 fps）
-  renderEpicyclicSystem(this, t, 1.0, false);
+  // 3. 輕量化渲染幾何輪系（即時流暢 60 fps）
+  renderEpicyclicSystem(this, t, 1.0);
 
   // 4. 繪製對位十字標
   if (PARAMS.showMarks) {
-    drawRegistrationMarks(this, 1.0, false);
+    drawRegistrationMarks(this, 1.0);
   }
 }
 
 // -------------------------------------------------------------------------
-// 幾何繪圖核心：支援螢幕渲染與純黑向量 SVG 輸出
+// 螢幕繪圖核心
 // -------------------------------------------------------------------------
-function renderEpicyclicSystem(pg, t, scaleFactor, isVectorExport) {
+function renderEpicyclicSystem(pg, t, scaleFactor) {
   const cx = pg.width * 0.5;
   const cy = pg.height * 0.5;
   const margin = 45.0 * scaleFactor;
   const baseR = PARAMS.baseRadius * scaleFactor;
   const maxR = 235.0 * scaleFactor;
-  const bleed = PARAMS.inkBleed * scaleFactor;
 
   pg.noFill();
+  const c = color(PARAMS.inkTone);
+  pg.stroke(red(c), green(c), blue(c));
+  pg.strokeWeight(1.2 * scaleFactor);
 
-  // 若為膠片向量輸出，嚴格強制使用 100% K 純黑無透明度
-  if (isVectorExport) {
-    pg.stroke(0);
-    pg.strokeWeight(1.0);
-  } else {
-    const c = color(PARAMS.inkTone);
-    pg.stroke(red(c), green(c), blue(c));
-    pg.strokeWeight(1.2 * scaleFactor);
-  }
-
-  // 向量匯出時提高曲線細分點數，確保開版線條平滑
-  const samples = isVectorExport ? 360 : 100;
+  const samples = 110;
 
   for (let i = 0; i < PARAMS.rings; i++) {
     const norm = i / (PARAMS.rings - 1);
@@ -86,12 +77,6 @@ function renderEpicyclicSystem(pg, t, scaleFactor, isVectorExport) {
       let x = cx + R * cos(theta + phase) + r * cos(PARAMS.gearRatio * (theta + phase));
       let y = cy + R * sin(theta + phase) - r * sin(PARAMS.gearRatio * (theta + phase));
 
-      // 向量開版黑稿不加入隨機微滲透，以確保照排路徑平滑封閉
-      if (bleed > 0 && !isVectorExport) {
-        x += (noise(x * 0.05, y * 0.05, t) - 0.5) * bleed;
-        y += (noise(y * 0.05, x * 0.05, t) - 0.5) * bleed;
-      }
-
       if (x >= margin && x <= pg.width - margin && y >= margin && y <= pg.height - margin) {
         pg.vertex(x, y);
       }
@@ -101,7 +86,7 @@ function renderEpicyclicSystem(pg, t, scaleFactor, isVectorExport) {
 }
 
 // -------------------------------------------------------------------------
-// 紙張紋理產生器（僅供網頁螢幕模擬）
+// 紙張紋理產生器
 // -------------------------------------------------------------------------
 function generatePaperTexture() {
   if (!paperTexture) {
@@ -130,11 +115,11 @@ function generatePaperTexture() {
 }
 
 // -------------------------------------------------------------------------
-// 四角對位十字標
+// 螢幕用對位十字標
 // -------------------------------------------------------------------------
-function drawRegistrationMarks(pg, scaleFactor, isVectorExport) {
-  pg.stroke(isVectorExport ? 0 : PARAMS.inkTone);
-  pg.strokeWeight((isVectorExport ? 0.8 : 0.6) * scaleFactor);
+function drawRegistrationMarks(pg, scaleFactor) {
+  pg.stroke(PARAMS.inkTone);
+  pg.strokeWeight(0.6 * scaleFactor);
   pg.noFill();
   const offset = 22 * scaleFactor;
   const len = 10 * scaleFactor;
@@ -155,25 +140,88 @@ function drawRegistrationMarks(pg, scaleFactor, isVectorExport) {
 }
 
 // -------------------------------------------------------------------------
-// 膠片用向量 SVG 匯出（100% K 純黑無損向量黑稿）
+// 原生純黑向量 SVG 產生器（100% K 開版菲林專用）
 // -------------------------------------------------------------------------
-function exportFilmVectorSVG() {
-  // 建立 SVG 虛擬繪圖物件（需搭配 p5.js-svg 模組）
-  const svgGraphics = createGraphics(800, 800, SVG);
-  svgGraphics.clear(); // 背景透明，不包含紙張底色
+function exportNativeFilmSVG() {
+  const w = 800;
+  const h = 800;
+  const cx = w * 0.5;
+  const cy = h * 0.5;
+  const margin = 45.0;
+  const baseR = PARAMS.baseRadius;
+  const maxR = 235.0;
+  const t = frameCount * PARAMS.speed;
+  const samples = 360; // 開版專用高密度平滑取樣
 
-  const currentT = frameCount * PARAMS.speed;
+  let svgContent = `<?xml version="1.0" encoding="utf-8"?>\n`;
+  svgContent += `<svg version="1.1" xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">\n`;
+  svgContent += `<g id="film_black_plate" fill="none" stroke="#000000" stroke-width="1.0" stroke-linecap="round" stroke-linejoin="round">\n`;
 
-  // 以向量模式渲染純黑路徑
-  renderEpicyclicSystem(svgGraphics, currentT, 1.0, true);
+  // 1. 幾何線條路徑
+  for (let i = 0; i < PARAMS.rings; i++) {
+    const norm = i / (PARAMS.rings - 1);
+    const R = map(norm, 0, 1, baseR, maxR);
+    const r = map(sin(norm * PI + t * 0.8), -1, 1, 16, 16 + PARAMS.amplitude);
 
-  if (PARAMS.showMarks) {
-    drawRegistrationMarks(svgGraphics, 1.0, true);
+    let pathD = '';
+    let isDrawing = false;
+
+    for (let j = 0; j <= samples; j++) {
+      const theta = (j / samples) * TWO_PI;
+      const phase = t * 1.5 + norm * PI;
+
+      let x = cx + R * cos(theta + phase) + r * cos(PARAMS.gearRatio * (theta + phase));
+      let y = cy + R * sin(theta + phase) - r * sin(PARAMS.gearRatio * (theta + phase));
+
+      if (x >= margin && x <= w - margin && y >= margin && y <= h - margin) {
+        if (!isDrawing) {
+          pathD += `M ${x.toFixed(2)} ${y.toFixed(2)} `;
+          isDrawing = true;
+        } else {
+          pathD += `L ${x.toFixed(2)} ${y.toFixed(2)} `;
+        }
+      } else {
+        isDrawing = false;
+      }
+    }
+
+    if (pathD.length > 0) {
+      svgContent += `  <path d="${pathD}" />\n`;
+    }
   }
 
-  // 儲存無損向量檔，並釋放記憶體
-  svgGraphics.save('film_black_vector.svg');
-  svgGraphics.remove();
+  // 2. 對位十字標
+  if (PARAMS.showMarks) {
+    const offset = 22;
+    const len = 10;
+    const corners = [
+      [offset, offset],
+      [w - offset, offset],
+      [offset, h - offset],
+      [w - offset, h - offset]
+    ];
+
+    svgContent += `  <!-- 對位標 -->\n`;
+    for (let i = 0; i < corners.length; i++) {
+      const [mx, my] = corners[i];
+      svgContent += `  <line x1="${mx - len}" y1="${my}" x2="${mx + len}" y2="${my}" stroke-width="0.8" />\n`;
+      svgContent += `  <line x1="${mx}" y1="${my - len}" x2="${mx}" y2="${my + len}" stroke-width="0.8" />\n`;
+      svgContent += `  <circle cx="${mx}" cy="${my}" r="${len * 0.5}" stroke-width="0.8" />\n`;
+    }
+  }
+
+  svgContent += `</g>\n</svg>`;
+
+  // 觸發瀏覽器下載
+  const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `film_black_${Date.now()}.svg`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // -------------------------------------------------------------------------
@@ -182,7 +230,7 @@ function exportFilmVectorSVG() {
 function initTweakpane() {
   pane = new Tweakpane.Pane({ title: '參數控制台' });
 
-  // 1. 幾何
+  // 1. 幾何（已修正標題）
   const fGeo = pane.addFolder({ title: '幾何' });
   fGeo.addBinding(PARAMS, 'rings', { min: 6, max: 64, step: 1, label: '軌道環數' });
   fGeo.addBinding(PARAMS, 'gearRatio', { min: 1.0, max: 8.0, step: 1.0, label: '齒輪比' });
@@ -217,8 +265,8 @@ function initTweakpane() {
     }
   });
 
-  // 4. 開版專用向量匯出按鈕
+  // 4. 按鈕（已修正標題為「膠片用向量圖檔」）
   fSys.addButton({ title: '膠片用向量圖檔' }).on('click', () => {
-    exportFilmVectorSVG();
+    exportNativeFilmSVG();
   });
 }
